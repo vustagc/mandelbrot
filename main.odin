@@ -1,6 +1,8 @@
 package main
 
+import f "core:fmt"
 import "core:math"
+import "core:math/cmplx"
 import rl "vendor:raylib"
 
 Width :: 1000
@@ -12,7 +14,7 @@ main :: proc() {
 	rl.InitWindow(Width, Width, "Mandelbrot")
 	defer rl.CloseWindow()
 
-	init()
+	calculate_set()
 
 	rl.SetTargetFPS(60)
 	for !rl.WindowShouldClose() {
@@ -22,9 +24,9 @@ main :: proc() {
 }
 
 // Range, [-R/2, R/2]
-R :: 4
+R : f32 = 4
 
-init :: proc() {
+calculate_set :: proc() {
 	for y := 0; y < Width; y += 1 {
 		for x := 0; x < Width; x += 1 {
 			nx := f32(x) / (Width / R) - R / 2
@@ -35,23 +37,16 @@ init :: proc() {
 }
 
 in_set :: proc(x, y : f32) -> rl.Color {
-	MaxIterations :: 200
+	MaxIterations :: 255
 	Boundary :: 10
-	// C :: 0
 
-	z : f32 = 0
-	zx : f32 = 0
-	zy : f32 = 0
-
-	// c := complex(x,y)
-	for i := 0; i < MaxIterations; i += 1 {
-		zx0 := zx * zx - zy * zy + x
-		zy = zx * zy + zy * zx + y
-		zx = zx0
-
-		if zx * zx + zy * zy > R * R {
-			// blows up, not in set
-			return rl.WHITE
+	c := complex(x, y)
+	z : complex64 = complex(0, 0)
+	for i : u8 = 0; i < MaxIterations; i += 1 {
+		z = z * z + c
+		dist := math.pow(cmplx.real(z), 2) + math.pow(cmplx.imag(z), 2)
+		if dist > R * R {
+			return rl.Color{0, 0, i, i}
 		}
 	}
 
@@ -59,14 +54,33 @@ in_set :: proc(x, y : f32) -> rl.Color {
 	return rl.BLACK
 }
 
+xoffset, yoffset : i32
+
+step :: 10
+
 update :: proc() {
+	if rl.IsKeyDown(.W) do yoffset += step
+	if rl.IsKeyDown(.S) do yoffset -= step
+	if rl.IsKeyDown(.D) do xoffset -= step
+	if rl.IsKeyDown(.A) do xoffset += step
+
+	if rl.IsKeyDown(.SPACE) {
+		R -= 0.5
+		calculate_set()
+	} else if rl.IsKeyDown(.BACKSPACE) {
+		R += 0.5
+		calculate_set()
+	} else if rl.IsKeyDown(.EQUAL) {
+		R = 4
+		calculate_set()
+	}
 }
 
 draw :: proc() {
 	rl.BeginDrawing()
 	defer rl.EndDrawing()
 
-	rl.ClearBackground(rl.WHITE)
+	rl.ClearBackground(rl.RAYWHITE)
 
 	for y : i32 = 0; y < Width; y += 1 {
 		for x : i32 = 0; x < Width; x += 1 {
@@ -74,7 +88,7 @@ draw :: proc() {
 				continue
 			}
 
-			rl.DrawPixel(x, y, points[y][x])
+			rl.DrawPixel(x + xoffset, y + yoffset, points[y][x])
 		}
 	}
 }
