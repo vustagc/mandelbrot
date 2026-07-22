@@ -24,7 +24,7 @@ main :: proc() {
 }
 
 // Range, [-R/2, R/2]
-R : f32 = 4
+R : f32 = 2
 
 calculate_set :: proc() {
 	for y := 0; y < Width; y += 1 {
@@ -45,7 +45,7 @@ in_set :: proc(x, y : f32) -> rl.Color {
 	for i : u8 = 0; i < MaxIterations; i += 1 {
 		z = z * z + c
 		dist := math.pow(cmplx.real(z), 2) + math.pow(cmplx.imag(z), 2)
-		if dist > R * R {
+		if dist > 2 {
 			return rl.Color{0, 0, i, i}
 		}
 	}
