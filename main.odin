@@ -4,6 +4,7 @@ import "base:builtin"
 import "core:fmt"
 import "core:math"
 import "core:math/cmplx"
+import "core:strings"
 import "core:thread"
 import "core:time"
 
@@ -11,8 +12,27 @@ import rl "vendor:raylib"
 
 Width :: 1000
 
+Debug :: false
+
 // represents the range of belonging to set or not
-points: [Width][Width]rl.Color
+m_points: [Width][Width]rl.Color
+
+State :: enum {
+	mandelbrot,
+	julia,
+}
+
+state := State.julia
+
+// Range, [-R/2, R/2], Zoom factor
+R: f64 = 4
+
+xoffset: f64 = -R / 2
+yoffset: f64 = -R / 2
+
+// julia
+j_points: [Width][Width]rl.Color
+j_c := complex(0.0, 0.0)
 
 main :: proc() {
 	rl.InitWindow(Width, Width, "Mandelbrot")
@@ -27,9 +47,6 @@ main :: proc() {
 	}
 }
 
-// Range, [-R/2, R/2]
-R: f64 = 2
-
 ThrData :: struct {
 	ystart: i32,
 	yend:   i32,
@@ -37,37 +54,29 @@ ThrData :: struct {
 
 thr_calculate :: proc(data: rawptr) {
 	d := cast(^ThrData)data
-
 	for y := d.ystart; y < d.yend; y += 1 {
 		for x := 0; x < Width; x += 1 {
-			nx := f64(x) / (Width / R) - R / 2
-			ny := f64(y) / (Width / R) - R / 2
-			points[y][x] = in_set(nx, ny)
+			nx := f64(x) / (Width / R) + xoffset
+			ny := f64(y) / (Width / R) + yoffset
+
+			if state == .mandelbrot {
+				m_points[y][x] = m_in_set(nx, ny)
+			} else {
+				j_points[y][x] = j_in_set(nx, ny)
+			}
 		}
 	}
-
 	free(d)
 }
 
 calculate_set :: proc() {
-	//        // naive
-	// start := time.now()
-	// for y := 0; y < Width; y += 1 {
-	// 	for x := 0; x < Width; x += 1 {
-	// 		nx := f32(x) / (Width / R) - R / 2
-	// 		ny := f32(y) / (Width / R) - R / 2
-	// 		points[y][x] = in_set(nx, ny)
-	// 	}
-	// }
-	// dur := time.since(start)
-	// fmt.println("Took ", dur) // ~724ms on mac m4
-
-	// multi-threaded
 	NThreads :: 20
 	Step :: Width / NThreads
 	thrs: [NThreads]^thread.Thread
 
-	start := time.now()
+	when Debug {
+		start := time.now()
+	}
 	for i: i32 = 0; i < NThreads; i += 1 {
 		data := new(ThrData)
 		data.ystart = i * Step
@@ -80,13 +89,15 @@ calculate_set :: proc() {
 		thread.join(t)
 	}
 
-	// dur := time.since(start)
-	// fmt.println("Took ", dur) // ~150ms on mac m4
+	when Debug {
+		fmt.println("Took,", time.since(start))
+	}
 }
 
-in_set :: proc(x, y: f64) -> rl.Color {
-	MaxIterations :: 255
-	Boundary :: 10
+m_in_set :: proc(x, y: f64) -> rl.Color {
+	MaxIterations :: 50
+
+	// turn this into a shader?
 
 	c := complex(x, y)
 	z: complex128 = complex(0, 0)
@@ -94,43 +105,77 @@ in_set :: proc(x, y: f64) -> rl.Color {
 		z = z * z + c
 		dist := math.pow(cmplx.real(z), 2) + math.pow(cmplx.imag(z), 2)
 		if dist > 2 {
+			return rl.Color{0, 0, i, 0xFF}
+		}
+	}
+
+	// reached max iter without blowing up, probably in set
+	// return rl.BLACK
+	return rl.Color{0, 0, u8(x) % 255, 0xFF}
+}
+
+j_in_set :: proc(x, y: f64) -> rl.Color {
+	MaxIterations :: 100
+
+	z: complex128 = complex(x, y)
+	for i: u8 = 0; i < MaxIterations; i += 1 {
+		z = z * z + j_c
+		dist := math.pow(cmplx.real(z), 2) + math.pow(cmplx.imag(z), 2)
+		if dist > 2 {
 			return rl.Color{0, 0, i, i}
 		}
 	}
 
 	// reached max iter without blowing up, probably in set
-	return rl.BLACK
+	// return rl.BLACK
+	return rl.Color{0, 0, u8(math.abs(x) * 255), 0xFF}
 }
 
-// xoffset, yoffset: i32
-//
-step :: 10
+step := R * 0.001
 
 update :: proc() {
-	// if rl.IsKeyDown(.W) {
-	// 	yoffset += step
-	// }
-	// if rl.IsKeyDown(.S) {
-	// 	yoffset -= step
-	// 	calculate_set()
-	// }
-	// if rl.IsKeyDown(.D) {
-	// 	xoffset -= step
-	// 	calculate_set()
-	// }
-	// if rl.IsKeyDown(.A) {
-	// 	xoffset += step
-	// 	calculate_set()
-	// }
+	if rl.IsKeyDown(.RIGHT) {
+		j_c += complex(0.01, 0)
+		calculate_set()
+	}
+	if rl.IsKeyDown(.LEFT) {
+		j_c += complex(-0.01, 0)
+		calculate_set()
+	}
+	if rl.IsKeyDown(.UP) {
+		j_c += complex(0, -0.01)
+		calculate_set()
+	}
+	if rl.IsKeyDown(.DOWN) {
+		j_c += complex(0, 0.01)
+		calculate_set()
+	}
+
+	if rl.IsKeyDown(.W) {
+		yoffset -= step
+		calculate_set()
+	}
+	if rl.IsKeyDown(.S) {
+		yoffset += step
+		calculate_set()
+	}
+	if rl.IsKeyDown(.D) {
+		xoffset += step
+		calculate_set()
+	}
+	if rl.IsKeyDown(.A) {
+		xoffset -= step
+		calculate_set()
+	}
 
 	if rl.IsKeyDown(.SPACE) {
-		R -= 0.5
+		R -= step
 		calculate_set()
 	} else if rl.IsKeyDown(.BACKSPACE) {
-		R += 0.5
+		R += step
 		calculate_set()
 	} else if rl.IsKeyDown(.EQUAL) {
-		R = 4
+		R = 2
 		calculate_set()
 	}
 
@@ -142,14 +187,35 @@ draw :: proc() {
 
 	rl.ClearBackground(rl.RAYWHITE)
 
-	for y: i32 = 0; y < Width; y += 1 {
-		for x: i32 = 0; x < Width; x += 1 {
-			if points[y][x] == rl.WHITE {
-				continue
-			}
+	switch state {
+	case .mandelbrot:
+		for y: i32 = 0; y < Width; y += 1 {
+			for x: i32 = 0; x < Width; x += 1 {
+				if m_points[y][x] == rl.WHITE {
+					continue
+				}
 
-			rl.DrawPixel(x, y, points[y][x])
+				rl.DrawPixel(x, y, m_points[y][x])
+			}
 		}
+	case .julia:
+		for y: i32 = 0; y < Width; y += 1 {
+			for x: i32 = 0; x < Width; x += 1 {
+				if j_points[y][x] == rl.WHITE {
+					continue
+				}
+
+				rl.DrawPixel(x, y, j_points[y][x])
+			}
+		}
+
+		// nx := x / (Width / R) + xoffset
+		// 1/x :=  (Width/R + xoffset) / nx
+
+		cx := cmplx.real(j_c) * Width + Width / (R / 2)
+		cy := cmplx.imag(j_c) * Width + Width / (R / 2)
+		rl.DrawCircle(cast(i32)cx, cast(i32)cy, 4, rl.ORANGE)
+
 	}
 }
 
